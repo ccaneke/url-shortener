@@ -41,21 +41,21 @@ func TestShortenUrl(t *testing.T) {
 
 	for _, tc := range testcases {
 		u, err := url.Parse(tc.in.rawUrl)
-		uCopy := *u
+		copy := *u
 		if err != nil {
 			return
 		}
 
 		var gotErr bool
-		got, err := ShortenURL(u, tc.in.domain)
+		got, err := ShortenURL(copy, tc.in.domain)
 		if err != nil {
 			gotErr = true
 		}
 
 		if gotErr {
-			t.Errorf("testcase %v, ShortenURL(%v), error=%v", tc.name, uCopy.String(), err)
+			t.Errorf("testcase %v, ShortenURL(%v), error=%v", tc.name, copy.String(), err)
 		} else if !strings.HasPrefix(got, tc.want) {
-			t.Errorf("testcase %v, ShortenURL(%v)=%v, want %v", tc.name, uCopy.String(), got, tc.want)
+			t.Errorf("testcase %v, ShortenURL(%v)=%v, want %v", tc.name, copy.String(), got, tc.want)
 		}
 
 	}

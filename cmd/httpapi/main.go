@@ -8,7 +8,7 @@ import (
 func main() {
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/send", send)
+	mux.HandleFunc("/shorten", shorten)
 
 	log.Println("Starting server on :3000")
 	err := http.ListenAndServe(":3000", mux)
