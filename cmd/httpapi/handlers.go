@@ -58,6 +58,7 @@ func shorten(w http.ResponseWriter, r *http.Request) {
 		err = save(absFilePath, mapping)
 		if err != nil {
 			http.Error(w, internalServerError, http.StatusInternalServerError)
+			return
 		}
 		return
 	}
@@ -65,6 +66,7 @@ func shorten(w http.ResponseWriter, r *http.Request) {
 	m, err := sync(absFilePath, mapping)
 	if err != nil {
 		http.Error(w, internalServerError, http.StatusInternalServerError)
+		return
 	}
 
 	err = save(absFilePath, m)
@@ -73,7 +75,6 @@ func shorten(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(shortenedUrl))
 }
 
