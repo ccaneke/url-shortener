@@ -13,7 +13,6 @@ func ShortenURL(u url.URL, domain string) (string, error) {
 	if len(u.Path) > 10 {
 		return "", errors.New("ID must be max. 10 characters long")
 	}
-	u.RawQuery = ""
 	rawURL := u.String()
 	return rawURL, nil
 }

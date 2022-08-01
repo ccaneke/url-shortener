@@ -21,7 +21,8 @@ const (
 
 func shorten(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		w.WriteHeader(http.StatusMethodNotAllowed)
+		w.Header().Set("Allow", "POST")
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -40,12 +41,7 @@ func shorten(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rdb := redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",
-		Password: "",
-		DB:       0})
-
-	ctx := context.Background()
+	rdb, ctx := initRedisDB()
 
 	err = rdb.Set(ctx, shortenedUrl, u.String(), 0).Err()
 	if err != nil {
@@ -54,6 +50,17 @@ func shorten(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Write([]byte(shortenedUrl))
+}
+
+func initRedisDB() (*redis.Client, context.Context) {
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     "localhost:6379",
+		Password: "",
+		DB:       0})
+
+	ctx := context.Background()
+
+	return rdb, ctx
 }
 
 func getURL(body io.ReadCloser) (*url.URL, error) {
@@ -71,4 +78,45 @@ func getURL(body io.ReadCloser) (*url.URL, error) {
 	}
 
 	return u, nil
+}
+
+func showLongURL(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", "GET")
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+	}
+
+	rdb, ctx := initRedisDB()
+
+	subStrings := strings.Split(r.Host, separator)
+	domain := subStrings[0]
+
+	longURL, err := getLongURL(ctx, r, rdb, domain)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	http.Redirect(w, r, *longURL, http.StatusFound)
+}
+
+func getLongURL(ctx context.Context, r *http.Request, rdb *redis.Client, domain string) (*string, error) {
+	r.URL.Host = domain
+	r.URL.Scheme = "https"
+	key := r.URL.String()
+
+	val, err := rdb.Get(ctx, key).Result()
+	switch {
+	case err == redis.Nil:
+		log.Println("getLongURL: key does not exist")
+		return nil, err
+	case err != nil:
+		log.Println("getLongURL: Get failed")
+		return nil, err
+	case val == "":
+		log.Println("getLongURL: value is empty")
+		return &val, nil
+	}
+
+	return &val, nil
 }

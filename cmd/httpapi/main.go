@@ -9,6 +9,7 @@ func main() {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/shorten", shorten)
+	mux.HandleFunc("/", showLongURL)
 
 	log.Println("Starting server on :3000")
 	err := http.ListenAndServe(":3000", mux)
