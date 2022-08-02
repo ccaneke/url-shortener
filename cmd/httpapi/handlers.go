@@ -100,7 +100,11 @@ func showLongURL(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, *longURL, http.StatusFound)
 }
 
-func getLongURL(ctx context.Context, r *http.Request, rdb *redis.Client, domain string) (*string, error) {
+type RedisClient interface {
+	Get(context.Context, string) *redis.StringCmd
+}
+
+func getLongURL(ctx context.Context, r *http.Request, rdb RedisClient, domain string) (*string, error) {
 	r.URL.Host = domain
 	r.URL.Scheme = "https"
 	key := r.URL.String()
