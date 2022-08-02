@@ -95,7 +95,7 @@ func TestGetLongURL(t *testing.T) {
 				domain      string
 			}{
 				context:     context.Background(),
-				request:     &http.Request{ /*Host: "localhost:3000", */ URL: &url.URL{Scheme: "http", Host: "localhost:3000", Path: "/73a546"}},
+				request:     &http.Request{URL: &url.URL{Scheme: "http", Host: "localhost:3000", Path: "/73a546"}},
 				redisClient: &redisClientMock{},
 				domain:      "localhost",
 			},
