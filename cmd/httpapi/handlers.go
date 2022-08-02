@@ -7,6 +7,7 @@ import (
 
 	"github.com/ccaneke/url-shortner-poc/internal"
 	"github.com/go-redis/redis/v8"
+	"github.com/google/uuid"
 )
 
 const (
@@ -29,7 +30,8 @@ func shorten(w http.ResponseWriter, r *http.Request) {
 	longURLCopy := *longURL
 	domain := internal.GetDomain(r)
 
-	shortURL, err := internal.ShortenURL(longURLCopy, domain)
+	uuidTruncated := uuid.New().String()[0:10]
+	shortURL, err := internal.ShortenURL(longURLCopy, domain, uuidTruncated)
 	if err != nil {
 		http.Error(w, internalServerError, http.StatusInternalServerError)
 		return
@@ -77,8 +79,12 @@ func showLongURL(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, *longURL, http.StatusFound)
 }
 
+type RedisClientInterface interface {
+	Get(ctx context.Context, key string) *redis.StringCmd
+}
+
 // getLongURL gets the long url that a short url maps to
-func getLongURL(ctx context.Context, r *http.Request, rdb *redis.Client, domain string) (*string, error) {
+func getLongURL(ctx context.Context, r *http.Request, rdb RedisClientInterface, domain string) (*string, error) {
 	r.URL.Host = domain
 	r.URL.Scheme = "https"
 	key := r.URL.String()

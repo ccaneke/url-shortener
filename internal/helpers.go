@@ -7,17 +7,19 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+)
 
-	"github.com/google/uuid"
+const (
+	IDTooLongErrMessage = "ID must be max. 10 characters long"
 )
 
 // ShortenURL shortens a long url
-func ShortenURL(u url.URL, domain string) (string, error) {
-	u.Host = domain
-	u.Path = uuid.New().String()[0:6]
-	if len(u.Path) > 10 {
-		return "", errors.New("ID must be max. 10 characters long")
+func ShortenURL(u url.URL, domain string, uuidString string) (string, error) {
+	if len([]rune(uuidString)) > 10 {
+		log.Println(IDTooLongErrMessage)
+		return "", errors.New(IDTooLongErrMessage)
 	}
+	u.Host = domain
 	rawURL := u.String()
 	return rawURL, nil
 }
