@@ -1,11 +1,15 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/go-redis/redis/v8"
 )
 
 func TestGetURL(t *testing.T) {
@@ -58,6 +62,57 @@ func TestGetURL(t *testing.T) {
 		if gotErr != tc.wantErr {
 			fmt.Println(tc.name)
 			t.Errorf("%v: getURL(%v)==%v, want %v", tc.name, tc.in, *got, *tc.want)
+		}
+	}
+}
+
+type redisClientMock struct {
+}
+
+func (r *redisClientMock) Get(context context.Context, key string) *redis.StringCmd {
+	return &redis.StringCmd{}
+}
+
+func TestGetLongURL(t *testing.T) {
+	wants := []string{"https://en.wikipedia.org/wiki/Main_Page"}
+	testcases := []struct {
+		name string
+		in   struct {
+			context     context.Context
+			request     *http.Request
+			redisClient RedisClient
+			domain      string
+		}
+		want      *string
+		wantError bool
+	}{
+		{
+			name: "successfully gets a value",
+			in: struct {
+				context     context.Context
+				request     *http.Request
+				redisClient RedisClient
+				domain      string
+			}{
+				context:     context.Background(),
+				request:     &http.Request{ /*Host: "localhost:3000", */ URL: &url.URL{Scheme: "http", Host: "localhost:3000", Path: "/73a546"}},
+				redisClient: &redisClientMock{},
+				domain:      "localhost",
+			},
+			want:      &wants[0],
+			wantError: false,
+		},
+	}
+
+	for _, tc := range testcases {
+		var gotError bool
+		got, err := getLongURL(tc.in.context, tc.in.request, tc.in.redisClient, tc.in.domain)
+		if err != nil {
+			gotError = true
+		}
+
+		if gotError != tc.wantError {
+			t.Errorf("%v: getLongURL(%+v)==%v, want %v", tc.name, tc.in, got, tc.want)
 		}
 	}
 }
