@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"net/http"
 	"net/url"
 	"strings"
 	"testing"
@@ -58,5 +59,36 @@ func TestShortenUrl(t *testing.T) {
 			t.Errorf("testcase %v, ShortenURL(%v)=%v, want %v", tc.name, copy.String(), got, tc.want)
 		}
 
+	}
+}
+
+func TestGetDomain(t *testing.T) {
+	testCases := []struct {
+		name string
+		in   *http.Request
+		want string
+	}{
+		{
+			name: "host includes domain and port number",
+			in:   &http.Request{Host: "localhost:3000"},
+			want: "localhost",
+		},
+		{
+			name: "host does not include port number",
+			in:   &http.Request{Host: "localhost"},
+			want: "localhost"},
+		{
+			name: "host is empty",
+			in:   &http.Request{Host: ""},
+			want: "",
+		},
+	}
+
+	for _, tc := range testCases {
+		got := GetDomain(tc.in)
+
+		if got != tc.want {
+			t.Errorf("%v: GetDomain(%v)==%v, want %v", tc.name, tc.in, got, tc.want)
+		}
 	}
 }

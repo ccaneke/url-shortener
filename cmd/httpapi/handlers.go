@@ -2,20 +2,14 @@ package main
 
 import (
 	"context"
-	"io"
 	"log"
 	"net/http"
-	"net/url"
-	"strings"
 
 	"github.com/ccaneke/url-shortner-poc/internal"
 	"github.com/go-redis/redis/v8"
 )
 
 const (
-	separator string = ":"
-	fileName  string = "mapping.json"
-
 	internalServerError = "Internal Server Error"
 )
 
@@ -26,16 +20,16 @@ func shorten(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	u, err := getURL(r.Body)
+	longURL, err := internal.GetURL(r.Body)
 	if err != nil {
 		http.Error(w, internalServerError, http.StatusInternalServerError)
 		return
 	}
 
-	copy := *u
-	subStrings := strings.Split(r.Host, separator)
-	domain := subStrings[0]
-	shortenedUrl, err := internal.ShortenURL(copy, domain)
+	longURLCopy := *longURL
+	domain := internal.GetDomain(r)
+
+	shortURL, err := internal.ShortenURL(longURLCopy, domain)
 	if err != nil {
 		http.Error(w, internalServerError, http.StatusInternalServerError)
 		return
@@ -43,15 +37,16 @@ func shorten(w http.ResponseWriter, r *http.Request) {
 
 	rdb, ctx := initRedisDB()
 
-	err = rdb.Set(ctx, shortenedUrl, u.String(), 0).Err()
+	err = rdb.Set(ctx, shortURL, longURL.String(), 0).Err()
 	if err != nil {
 		http.Error(w, internalServerError, http.StatusInternalServerError)
 		return
 	}
 
-	w.Write([]byte(shortenedUrl))
+	w.Write([]byte(shortURL))
 }
 
+// initRedisDB connects to a redis server
 func initRedisDB() (*redis.Client, context.Context) {
 	rdb := redis.NewClient(&redis.Options{
 		Addr:     "localhost:6379",
@@ -63,23 +58,6 @@ func initRedisDB() (*redis.Client, context.Context) {
 	return rdb, ctx
 }
 
-func getURL(body io.ReadCloser) (*url.URL, error) {
-	b, err := io.ReadAll(body)
-	if err != nil {
-		log.Println("getURL: ", err)
-		return nil, err
-	}
-	defer body.Close()
-
-	u, err := url.Parse(string(b))
-	if err != nil {
-		log.Println("getURL", err)
-		return nil, err
-	}
-
-	return u, nil
-}
-
 func showLongURL(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		w.Header().Set("Allow", "GET")
@@ -88,8 +66,7 @@ func showLongURL(w http.ResponseWriter, r *http.Request) {
 
 	rdb, ctx := initRedisDB()
 
-	subStrings := strings.Split(r.Host, separator)
-	domain := subStrings[0]
+	domain := internal.GetDomain(r)
 
 	longURL, err := getLongURL(ctx, r, rdb, domain)
 	if err != nil {
@@ -100,6 +77,7 @@ func showLongURL(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, *longURL, http.StatusFound)
 }
 
+// getLongURL gets the long url that a short url maps to
 func getLongURL(ctx context.Context, r *http.Request, rdb *redis.Client, domain string) (*string, error) {
 	r.URL.Host = domain
 	r.URL.Scheme = "https"
