@@ -79,7 +79,7 @@ func TestURLFromBody(t *testing.T) {
 		{
 			name:    "successful when scheme is missing",
 			in:      io.NopCloser(strings.NewReader(`{"LongURL":"//en.wikipedia.org/wiki/Main_Page"}`)),
-			want:    &url.URL{Scheme: "https", Host: "en.wikipedia.org", Path: "/wiki/Main_Page"},
+			want:    &url.URL{Scheme: "", Host: "en.wikipedia.org", Path: "/wiki/Main_Page"},
 			wantErr: false,
 		},
 		{
