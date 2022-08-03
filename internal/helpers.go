@@ -1,16 +1,20 @@
 package internal
 
 import (
+	"encoding/json"
 	"errors"
 	"io"
 	"log"
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/ccaneke/url-shortner-poc/cmd/httpapi/request"
 )
 
 const (
-	IDTooLongErrMessage = "ID must be max. 10 characters long"
+	IDTooLongErrMessage = "id must be max. 10 characters long"
+	BlankURLErrMessage  = "long URL cannot be blank"
 )
 
 // ShortenURL shortens a long url
@@ -20,20 +24,33 @@ func ShortenURL(u url.URL, domain string, uuidString string) (string, error) {
 		return "", errors.New(IDTooLongErrMessage)
 	}
 	u.Host = domain
+	u.Path = uuidString
 	rawURL := u.String()
 	return rawURL, nil
 }
 
-// GetURL gets the url sent in the body of a request
-func GetURL(body io.ReadCloser) (*url.URL, error) {
+// URLFromBody gets the url sent in the body of a request
+func URLFromBody(body io.ReadCloser) (*url.URL, error) {
 	b, err := io.ReadAll(body)
+	if len(b) == 0 {
+		log.Println(BlankURLErrMessage)
+		return nil, errors.New(BlankURLErrMessage)
+	}
 	if err != nil {
-		log.Println("getURL: ", err)
+		log.Println("URLFromBody: ", err)
 		return nil, err
 	}
+
+	var request request.Request
+	err = json.Unmarshal(b, &request)
+	if err != nil {
+		log.Println("URLFromBody: ", err)
+		return nil, err
+	}
+
 	defer body.Close()
 
-	u, err := url.Parse(string(b))
+	u, err := url.Parse(request.LongURL)
 	if err != nil {
 		log.Println("getURL", err)
 		return nil, err
