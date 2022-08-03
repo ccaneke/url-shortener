@@ -84,6 +84,7 @@ type RedisClientInterface interface {
 
 // getLongURL gets the long url that a short url maps to
 func getLongURL(ctx context.Context, r *http.Request, rdb RedisClientInterface, domain string) (*string, error) {
+
 	r.URL.Host = domain
 	r.URL.Scheme = "https"
 	key := r.URL.String()
