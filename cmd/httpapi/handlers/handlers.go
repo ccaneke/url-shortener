@@ -1,11 +1,14 @@
-package main
+package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"net/http"
 
+	"github.com/ccaneke/url-shortner-poc/cmd/httpapi/response"
 	"github.com/ccaneke/url-shortner-poc/internal"
+	db "github.com/ccaneke/url-shortner-poc/internal/DB"
 	"github.com/go-redis/redis/v8"
 	"github.com/google/uuid"
 )
@@ -14,14 +17,14 @@ const (
 	internalServerError = "Internal Server Error"
 )
 
-func shorten(w http.ResponseWriter, r *http.Request) {
+func Shorten(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	longURL, err := internal.GetURL(r.Body)
+	longURL, err := internal.URLFromBody(r.Body)
 	if err != nil {
 		http.Error(w, internalServerError, http.StatusInternalServerError)
 		return
@@ -30,14 +33,14 @@ func shorten(w http.ResponseWriter, r *http.Request) {
 	longURLCopy := *longURL
 	domain := internal.GetDomain(r)
 
-	uuidTruncated := uuid.New().String()[0:10]
+	uuidTruncated := uuid.New().String()[0:8]
 	shortURL, err := internal.ShortenURL(longURLCopy, domain, uuidTruncated)
 	if err != nil {
 		http.Error(w, internalServerError, http.StatusInternalServerError)
 		return
 	}
-
-	rdb, ctx := initRedisDB()
+	ctx := context.Background()
+	rdb := db.InitRedisDB(ctx)
 
 	err = rdb.Set(ctx, shortURL, longURL.String(), 0).Err()
 	if err != nil {
@@ -45,28 +48,24 @@ func shorten(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Write([]byte(shortURL))
+	response := response.Response{OriginalURL: longURL.String(), ShortURL: shortURL}
+	b, err := json.Marshal(response)
+	if err != nil {
+		log.Println(err)
+		http.Error(w, internalServerError, http.StatusInternalServerError)
+	}
+
+	w.Write(b)
 }
 
-// initRedisDB connects to a redis server
-func initRedisDB() (*redis.Client, context.Context) {
-	rdb := redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",
-		Password: "",
-		DB:       0})
-
-	ctx := context.Background()
-
-	return rdb, ctx
-}
-
-func showLongURL(w http.ResponseWriter, r *http.Request) {
+func RedirectToLongURL(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		w.Header().Set("Allow", "GET")
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 	}
 
-	rdb, ctx := initRedisDB()
+	ctx := context.Background()
+	rdb := db.InitRedisDB(ctx)
 
 	domain := internal.GetDomain(r)
 
@@ -76,7 +75,7 @@ func showLongURL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.Redirect(w, r, *longURL, http.StatusFound)
+	http.Redirect(w, r, *longURL, http.StatusMovedPermanently)
 }
 
 type RedisClientInterface interface {

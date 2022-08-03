@@ -1,8 +1,11 @@
 package internal
 
 import (
+	"fmt"
+	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 )
 
@@ -18,7 +21,7 @@ func TestShortenUrl(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "domain missing",
+			name: "successful when domain is missing",
 			in: struct {
 				url        url.URL
 				domain     string
@@ -56,6 +59,60 @@ func TestShortenUrl(t *testing.T) {
 
 		if gotErr != tc.wantErr {
 			t.Errorf("%v: ShortenURL(%+v)==%v, want %v", tc.name, tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestURLFromBody(t *testing.T) {
+	testCases := []struct {
+		name    string
+		in      io.ReadCloser
+		want    *url.URL
+		wantErr bool
+	}{
+		{
+			name:    "successful when long url is correct",
+			in:      io.NopCloser(strings.NewReader(`{"LongURL":"https://en.wikipedia.org/wiki/Main_Page"}`)),
+			want:    &url.URL{Scheme: "https", Host: "en.wikipedia.org", Path: "/wiki/Main_Page"},
+			wantErr: false,
+		},
+		{
+			name:    "successful when scheme is missing",
+			in:      io.NopCloser(strings.NewReader(`{"LongURL":"//en.wikipedia.org/wiki/Main_Page"}`)),
+			want:    &url.URL{Scheme: "https", Host: "en.wikipedia.org", Path: "/wiki/Main_Page"},
+			wantErr: false,
+		},
+		{
+			name:    "no error when host is missing",
+			in:      io.NopCloser(strings.NewReader(`{"LongURL":"https:///wiki/Main_Page"}`)),
+			want:    &url.URL{Scheme: "https", Host: "", Path: "/wiki/Main_Page"},
+			wantErr: false,
+		},
+		{
+			name:    "no error when path is missing",
+			in:      io.NopCloser(strings.NewReader(`{"LongURL":"https://en.wikipedia.org/"}`)),
+			want:    &url.URL{Scheme: "https", Host: "en.wikipedia.org", Path: ""},
+			wantErr: false,
+		},
+		{
+			name:    "invalid request, long url cannot be blank",
+			in:      io.NopCloser(strings.NewReader("")),
+			want:    nil,
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		got, err := URLFromBody(tc.in)
+
+		var gotErr bool
+		if err != nil {
+			gotErr = true
+		}
+
+		if gotErr != tc.wantErr {
+			fmt.Println(tc.name)
+			t.Errorf("%v: getURL(%v)==%v, want %v", tc.name, tc.in, *got, *tc.want)
 		}
 	}
 }
