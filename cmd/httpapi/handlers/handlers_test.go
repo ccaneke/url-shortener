@@ -33,6 +33,8 @@ func TestGetLongURL(t *testing.T) {
 			key string
 		}
 		mockMethodOutput *redis.StringCmd
+		val              string
+		err              error
 	}{
 		{
 			name: "Value is empty",
@@ -45,6 +47,8 @@ func TestGetLongURL(t *testing.T) {
 				key: "https://localhost/wiki/Main_Page",
 			},
 			mockMethodOutput: &redis.StringCmd{},
+			val:              "",
+			err:              nil,
 		},
 		{
 			name: "Key does not exist",
@@ -57,6 +61,8 @@ func TestGetLongURL(t *testing.T) {
 				key: "https://localhost/wiki/Main_Page",
 			},
 			mockMethodOutput: &redis.StringCmd{},
+			val:              "",
+			err:              redis.Nil,
 		},
 		{
 			name: "Get failed",
@@ -69,6 +75,8 @@ func TestGetLongURL(t *testing.T) {
 				key: "https://localhost/wiki/Main_Page",
 			},
 			mockMethodOutput: &redis.StringCmd{},
+			val:              "",
+			err:              errors.New("Get failed"),
 		},
 		{
 			name: "full value",
@@ -81,20 +89,14 @@ func TestGetLongURL(t *testing.T) {
 				key: "https://localhost/wiki/Main_Page",
 			},
 			mockMethodOutput: &redis.StringCmd{},
+			val:              "https://en.wikipedia.org/wiki/Main_Page",
+			err:              nil,
 		},
 	}
 
-	for i, tc := range testCases {
-		switch i {
-		case 0:
-			tc.mockMethodOutput.SetVal("")
-		case 1:
-			tc.mockMethodOutput.SetErr(redis.Nil)
-		case 2:
-			tc.mockMethodOutput.SetErr(errors.New("Get failed"))
-		case 3:
-			tc.mockMethodOutput.SetVal("https://en.wikipedia.org/wiki/Main_Page")
-		}
+	for _, tc := range testCases {
+		tc.mockMethodOutput.SetVal(tc.val)
+		tc.mockMethodOutput.SetErr(tc.err)
 
 		tc.mock.On("Get", tc.mockMethodInputs.ctx, tc.mockMethodInputs.key).Return(tc.mockMethodOutput)
 		getLongURL(ctx, request, tc.mock, domain)
