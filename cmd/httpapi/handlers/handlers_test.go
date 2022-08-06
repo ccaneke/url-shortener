@@ -1,105 +1,176 @@
 package handlers
 
 import (
-	"context"
-	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 
-	"github.com/go-redis/redis/v8"
 	"github.com/stretchr/testify/mock"
 )
 
-type RedisClientMock struct {
+type LoggerMock struct {
 	mock.Mock
 }
 
-func (m *RedisClientMock) Get(ctx context.Context, key string) *redis.StringCmd {
-	args := m.Called(ctx, key)
-	return args.Get(0).(*redis.StringCmd)
+func (m *LoggerMock) Print(v ...any) {
+	_ = m.Called(v)
 }
 
-func TestGetLongURL(t *testing.T) {
-	ctx := context.Background()
-	request := &http.Request{URL: &url.URL{Scheme: "https", Host: "en.wikipedia.org", Path: "/wiki/Main_Page"}}
-	domain := "localhost"
+func (m *LoggerMock) Fatal(v ...any) {
+	_ = m.Called(v)
+}
 
-	testCases := []struct {
-		name             string
-		mock             *RedisClientMock
-		mockMethodInputs struct {
-			ctx context.Context
-			key string
+func TestShortenUrl(t *testing.T) {
+	var testcases = []struct {
+		name string
+		in   struct {
+			url        url.URL
+			domain     string
+			uuidString string
+			loggerMock *LoggerMock
 		}
-		mockMethodOutput *redis.StringCmd
-		val              string
-		err              error
+		want    string
+		wantErr bool
 	}{
 		{
-			name: "Value is empty",
-			mock: new(RedisClientMock),
-			mockMethodInputs: struct {
-				ctx context.Context
-				key string
+			name: "successful when domain is missing",
+			in: struct {
+				url        url.URL
+				domain     string
+				uuidString string
+				loggerMock *LoggerMock
 			}{
-				ctx: context.Background(),
-				key: "https://localhost/wiki/Main_Page",
+				url:        url.URL{Scheme: "https", Host: "en.wikipedia.org", Path: "wiki/Main_Page/123456"},
+				domain:     "",
+				uuidString: "123e45",
+				loggerMock: new(LoggerMock),
 			},
-			mockMethodOutput: &redis.StringCmd{},
-			val:              "",
-			err:              nil,
+			want:    "",
+			wantErr: false},
+
+		{
+			name: "error when uuid is greater than 10",
+			in: struct {
+				url        url.URL
+				domain     string
+				uuidString string
+				loggerMock *LoggerMock
+			}{
+				url:        url.URL{Scheme: "https", Host: "en.wikipedia.org", Path: "wiki/Main_Page/123456"},
+				domain:     "",
+				uuidString: "123e4567-e89b-12d3-a456-426614174000",
+				loggerMock: new(LoggerMock),
+			},
+			want:    "",
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range testcases {
+		if tc.wantErr {
+			tc.in.loggerMock.On("Print", mock.Anything).Return()
+		}
+		got, err := shortenURL(tc.in.url, tc.in.domain, tc.in.uuidString, tc.in.loggerMock)
+
+		var gotErr bool
+		if err != nil {
+			gotErr = true
+		}
+
+		if gotErr != tc.wantErr {
+			t.Errorf("%v: ShortenURL(%+v)==%v, want %v", tc.name, tc.in, got, tc.want)
+		}
+
+		tc.in.loggerMock.AssertExpectations(t)
+	}
+}
+
+func TestUrlFromBody(t *testing.T) {
+	testCases := []struct {
+		name string
+		in   struct {
+			body   io.ReadCloser
+			logger *LoggerMock
+		}
+		want    *url.URL
+		wantErr bool
+	}{
+		{
+			name: "valid url",
+			in: struct {
+				body   io.ReadCloser
+				logger *LoggerMock
+			}{
+				body:   io.NopCloser(strings.NewReader(`{"LongURL":"https://en.wikipedia.org/wiki/Main_Page"}`)),
+				logger: new(LoggerMock),
+			},
+			want:    &url.URL{Scheme: "https", Host: "en.wikipedia.org", Path: "/wiki/Main_Page"},
+			wantErr: false,
 		},
 		{
-			name: "Key does not exist",
-			mock: new(RedisClientMock),
-			mockMethodInputs: struct {
-				ctx context.Context
-				key string
+			name: "invalid request, long url cannot be blank",
+			in: struct {
+				body   io.ReadCloser
+				logger *LoggerMock
 			}{
-				ctx: ctx,
-				key: "https://localhost/wiki/Main_Page",
+				body:   io.NopCloser(strings.NewReader("")),
+				logger: new(LoggerMock),
 			},
-			mockMethodOutput: &redis.StringCmd{},
-			val:              "",
-			err:              redis.Nil,
-		},
-		{
-			name: "Get failed",
-			mock: new(RedisClientMock),
-			mockMethodInputs: struct {
-				ctx context.Context
-				key string
-			}{
-				ctx: ctx,
-				key: "https://localhost/wiki/Main_Page",
-			},
-			mockMethodOutput: &redis.StringCmd{},
-			val:              "",
-			err:              errors.New("Get failed"),
-		},
-		{
-			name: "full value",
-			mock: new(RedisClientMock),
-			mockMethodInputs: struct {
-				ctx context.Context
-				key string
-			}{
-				ctx: ctx,
-				key: "https://localhost/wiki/Main_Page",
-			},
-			mockMethodOutput: &redis.StringCmd{},
-			val:              "https://en.wikipedia.org/wiki/Main_Page",
-			err:              nil,
+			want:    nil,
+			wantErr: true,
 		},
 	}
 
 	for _, tc := range testCases {
-		tc.mockMethodOutput.SetVal(tc.val)
-		tc.mockMethodOutput.SetErr(tc.err)
+		if tc.wantErr {
+			tc.in.logger.On("Print", mock.Anything).Return()
+		}
+		got, err := urlFromBody(tc.in.body, tc.in.logger)
 
-		tc.mock.On("Get", tc.mockMethodInputs.ctx, tc.mockMethodInputs.key).Return(tc.mockMethodOutput)
-		getLongURL(ctx, request, tc.mock, domain)
-		tc.mock.AssertExpectations(t)
+		var gotErr bool
+		if err != nil {
+			gotErr = true
+		}
+
+		if gotErr != tc.wantErr {
+			fmt.Println(tc.name)
+			t.Errorf("%v: getURL(%v)==%v, want %v", tc.name, tc.in, *got, *tc.want)
+		}
+
+		tc.in.logger.AssertExpectations(t)
+	}
+}
+
+func TestGetDomain(t *testing.T) {
+	testCases := []struct {
+		name string
+		in   *http.Request
+		want string
+	}{
+		{
+			name: "host includes domain and port number",
+			in:   &http.Request{Host: "localhost:3000"},
+			want: "localhost",
+		},
+		{
+			name: "host does not include port number",
+			in:   &http.Request{Host: "localhost"},
+			want: "localhost"},
+		{
+			name: "host is empty",
+			in:   &http.Request{Host: ""},
+			want: "",
+		},
+	}
+
+	for _, tc := range testCases {
+		got := getDomain(tc.in)
+
+		if got != tc.want {
+			t.Errorf("%v: GetDomain(%v)==%v, want %v", tc.name, tc.in, got, tc.want)
+		}
 	}
 }

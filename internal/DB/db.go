@@ -2,30 +2,62 @@ package db
 
 import (
 	"context"
-	"log"
+	"os"
+	"time"
 
 	"github.com/go-redis/redis/v8"
 )
 
 const (
-	REDIS_HOST     = "localhost"
-	REDIS_PORT     = "6379"
-	REDIS_PASSWORD = ""
+	redisHost               = "redis"
+	redisPort               = "6379"
+	redisPasswordEnvVarName = "REDIS_DATABASE_PASSWORD"
 )
 
+type RedisClientInterface interface {
+	Get(ctx context.Context, key string) *redis.StringCmd
+	Set(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.StatusCmd
+}
+
+type LoggerInterface interface {
+	Print(v ...any)
+	Fatal(v ...any)
+}
+
 // InitRedisDB connects to a redis server
-func InitRedisDB(ctx context.Context) *redis.Client {
+func InitRedisDB(logger LoggerInterface) *redis.Client {
+	ctx := context.Background()
+	// For production usage, the password can alternatively be stored in AWS secrets manager and retrieved from there
+	password := os.Getenv(redisPasswordEnvVarName)
 	rdb := redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",
-		Password: "",
+		Addr:     redisHost + ":" + redisPort,
+		Password: password,
 		DB:       0})
 
 	_, err := rdb.Ping(ctx).Result()
 	if err != nil {
-		log.Fatal(err)
+		logger.Fatal(err)
 	}
 
-	log.Println("Successfully connected to the redis database")
+	logger.Print("Successfully connected to the redis database")
 
 	return rdb
+}
+
+// GetValue gets the long url that a short url maps to
+func GetValue(ctx context.Context, key string, rdb RedisClientInterface, logger LoggerInterface) (*string, error) {
+	val, err := rdb.Get(ctx, key).Result()
+	switch {
+	case err == redis.Nil:
+		logger.Print("getLongURL: key does not exist")
+		return nil, err
+	case err != nil:
+		logger.Print("getLongURL: Get failed")
+		return nil, err
+	case val == "":
+		logger.Print("getLongURL: value is empty")
+		return &val, nil
+	}
+
+	return &val, nil
 }

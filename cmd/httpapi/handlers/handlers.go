@@ -3,46 +3,63 @@ package handlers
 import (
 	"context"
 	"encoding/json"
-	"log"
+	"errors"
+	"io"
 	"net/http"
+	"net/url"
+	"strings"
 
+	"github.com/ccaneke/url-shortner-poc/cmd/httpapi/request"
 	"github.com/ccaneke/url-shortner-poc/cmd/httpapi/response"
-	"github.com/ccaneke/url-shortner-poc/internal"
 	db "github.com/ccaneke/url-shortner-poc/internal/DB"
-	"github.com/go-redis/redis/v8"
 	"github.com/google/uuid"
 )
 
 const (
 	internalServerError = "Internal Server Error"
+	IDTooLongErrMessage = "id must be max. 10 characters long"
+	BlankURLErrMessage  = "long URL cannot be blank"
 )
 
-func Shorten(w http.ResponseWriter, r *http.Request) {
+type loggerInterface interface {
+	Print(v ...any)
+	Fatal(v ...any)
+}
+
+type handler struct {
+	redisClient db.RedisClientInterface
+	logger      loggerInterface
+}
+
+func NewHandler(redisClient db.RedisClientInterface, logger loggerInterface) handler {
+	return handler{redisClient: redisClient, logger: logger}
+}
+
+func (h *handler) Shorten(w http.ResponseWriter, r *http.Request) {
+	ctx := context.Background()
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	longURL, err := internal.URLFromBody(r.Body)
+	longURL, err := urlFromBody(r.Body, h.logger)
 	if err != nil {
 		http.Error(w, internalServerError, http.StatusInternalServerError)
 		return
 	}
 
 	longURLCopy := *longURL
-	domain := internal.GetDomain(r)
+	domain := getDomain(r)
 
 	uuidTruncated := uuid.New().String()[0:8]
-	shortURL, err := internal.ShortenURL(longURLCopy, domain, uuidTruncated)
+	shortURL, err := shortenURL(longURLCopy, domain, uuidTruncated, h.logger)
 	if err != nil {
 		http.Error(w, internalServerError, http.StatusInternalServerError)
 		return
 	}
-	ctx := context.Background()
-	rdb := db.InitRedisDB(ctx)
 
-	err = rdb.Set(ctx, shortURL, longURL.String(), 0).Err()
+	err = h.redisClient.Set(ctx, shortURL, longURL.String(), 0).Err()
 	if err != nil {
 		http.Error(w, internalServerError, http.StatusInternalServerError)
 		return
@@ -51,25 +68,26 @@ func Shorten(w http.ResponseWriter, r *http.Request) {
 	response := response.Response{OriginalURL: longURL.String(), ShortURL: shortURL}
 	b, err := json.Marshal(response)
 	if err != nil {
-		log.Println(err)
+		h.logger.Print(err)
 		http.Error(w, internalServerError, http.StatusInternalServerError)
 	}
 
 	w.Write(b)
 }
 
-func RedirectToLongURL(w http.ResponseWriter, r *http.Request) {
+func (h *handler) RedirectToLongURL(w http.ResponseWriter, r *http.Request) {
+	ctx := context.Background()
 	if r.Method != http.MethodGet {
 		w.Header().Set("Allow", "GET")
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 	}
 
-	ctx := context.Background()
-	rdb := db.InitRedisDB(ctx)
+	domain := getDomain(r)
 
-	domain := internal.GetDomain(r)
-
-	longURL, err := getLongURL(ctx, r, rdb, domain)
+	r.URL.Host = domain
+	r.URL.Scheme = "https"
+	key := r.URL.String()
+	longURL, err := db.GetValue(ctx, key, h.redisClient, h.logger)
 	if err != nil {
 		http.NotFound(w, r)
 		return
@@ -78,29 +96,52 @@ func RedirectToLongURL(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, *longURL, http.StatusMovedPermanently)
 }
 
-type RedisClientInterface interface {
-	Get(ctx context.Context, key string) *redis.StringCmd
+// shortenURL shortens a long url
+func shortenURL(u url.URL, domain string, uuidString string, logger loggerInterface) (string, error) {
+	if len([]rune(uuidString)) > 10 {
+		logger.Print(IDTooLongErrMessage)
+		return "", errors.New(IDTooLongErrMessage)
+	}
+	u.Host = domain
+	u.Path = uuidString
+	rawURL := u.String()
+	return rawURL, nil
 }
 
-// getLongURL gets the long url that a short url maps to
-func getLongURL(ctx context.Context, r *http.Request, rdb RedisClientInterface, domain string) (*string, error) {
-
-	r.URL.Host = domain
-	r.URL.Scheme = "https"
-	key := r.URL.String()
-
-	val, err := rdb.Get(ctx, key).Result()
-	switch {
-	case err == redis.Nil:
-		log.Println("getLongURL: key does not exist")
+// urlFromBody gets the url sent in the body of a request
+func urlFromBody(body io.ReadCloser, logger loggerInterface) (*url.URL, error) {
+	b, err := io.ReadAll(body)
+	if len(b) == 0 {
+		logger.Print(BlankURLErrMessage)
+		return nil, errors.New(BlankURLErrMessage)
+	}
+	if err != nil {
+		logger.Print("URLFromBody: ", err)
 		return nil, err
-	case err != nil:
-		log.Println("getLongURL: Get failed")
-		return nil, err
-	case val == "":
-		log.Println("getLongURL: value is empty")
-		return &val, nil
 	}
 
-	return &val, nil
+	var request request.Request
+	err = json.Unmarshal(b, &request)
+	if err != nil {
+		logger.Print("URLFromBody: ", err)
+		return nil, err
+	}
+
+	defer body.Close()
+
+	u, err := url.Parse(request.LongURL)
+	if err != nil {
+		logger.Print("getURL", err)
+		return nil, err
+	}
+
+	return u, nil
+}
+
+// getDomain gets the host of the server without the network address
+func getDomain(r *http.Request) string {
+	subStrings := strings.Split(r.Host, ":")
+	domain := subStrings[0]
+
+	return domain
 }
