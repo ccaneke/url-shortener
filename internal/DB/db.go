@@ -39,6 +39,22 @@ func InitRedisDB(logger LoggerInterface) *redis.Client {
 		logger.Fatal(err)
 	}
 
+	delay := 500 * time.Millisecond
+	for {
+		_, err = rdb.Ping(ctx).Result()
+		if err == nil {
+			break
+		}
+
+		time.Sleep(delay)
+		logger.Print("Cannot connect to redis database. Retrying after ", delay/1000, " seconds...")
+
+		if delay > 200000 {
+			logger.Fatal(err)
+		}
+		delay *= 2
+	}
+
 	logger.Print("Successfully connected to the redis database")
 
 	return rdb
