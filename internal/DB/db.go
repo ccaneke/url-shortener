@@ -34,10 +34,7 @@ func InitRedisDB(logger LoggerInterface) *redis.Client {
 		Password: password,
 		DB:       0})
 
-	_, err := rdb.Ping(ctx).Result()
-	if err != nil {
-		logger.Fatal(err)
-	}
+	var err error
 
 	delay := 500 * time.Millisecond
 	for {
