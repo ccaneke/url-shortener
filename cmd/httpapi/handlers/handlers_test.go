@@ -167,7 +167,7 @@ func TestGetDomain(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		got := getDomain(tc.in)
+		got := getDomainName(tc.in)
 
 		if got != tc.want {
 			t.Errorf("%v: GetDomain(%v)==%v, want %v", tc.name, tc.in, got, tc.want)

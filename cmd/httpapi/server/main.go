@@ -13,7 +13,7 @@ func main() {
 	logger := log.New(os.Stdout, "logger: ", log.Lshortfile)
 
 	redisClient := db.InitRedisDB(logger)
-	handler := handlers.NewHandler(redisClient, logger)
+	handler := handlers.NewURLShortenerHandler(redisClient, logger)
 
 	mux := http.NewServeMux()
 

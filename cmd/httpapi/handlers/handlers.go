@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -21,22 +20,28 @@ const (
 	BlankURLErrMessage  = "long URL cannot be blank"
 )
 
-type loggerInterface interface {
+type LoggerInterface interface {
 	Print(v ...any)
 	Fatal(v ...any)
 }
 
-type handler struct {
+type URLShortenerHandler struct {
 	redisClient db.RedisClientInterface
-	logger      loggerInterface
+	logger      LoggerInterface
 }
 
-func NewHandler(redisClient db.RedisClientInterface, logger loggerInterface) handler {
-	return handler{redisClient: redisClient, logger: logger}
+type ShortnerRedirecter interface {
+	Shorten(w http.ResponseWriter, r *http.Request)
+	RedirectToLongURL(w http.ResponseWriter, r *http.Request)
 }
 
-func (h *handler) Shorten(w http.ResponseWriter, r *http.Request) {
-	ctx := context.Background()
+// NewURLShortenerHandler creates a new URL shortner handler to be used for incoming requests to shorten a url and redirect to a long url from it
+func NewURLShortenerHandler(redisClient db.RedisClientInterface, logger LoggerInterface) ShortnerRedirecter {
+	return &URLShortenerHandler{redisClient: redisClient, logger: logger}
+}
+
+func (h *URLShortenerHandler) Shorten(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
@@ -50,10 +55,10 @@ func (h *handler) Shorten(w http.ResponseWriter, r *http.Request) {
 	}
 
 	longURLCopy := *longURL
-	domain := getDomain(r)
+	domainName := getDomainName(r)
 
 	uuidTruncated := uuid.New().String()[0:8]
-	shortURL, err := shortenURL(longURLCopy, domain, uuidTruncated, h.logger)
+	shortURL, err := shortenURL(longURLCopy, domainName, uuidTruncated, h.logger)
 	if err != nil {
 		http.Error(w, internalServerError, http.StatusInternalServerError)
 		return
@@ -75,14 +80,14 @@ func (h *handler) Shorten(w http.ResponseWriter, r *http.Request) {
 	w.Write(b)
 }
 
-func (h *handler) RedirectToLongURL(w http.ResponseWriter, r *http.Request) {
-	ctx := context.Background()
+func (h *URLShortenerHandler) RedirectToLongURL(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	if r.Method != http.MethodGet {
 		w.Header().Set("Allow", "GET")
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 	}
 
-	domain := getDomain(r)
+	domain := getDomainName(r)
 
 	r.URL.Host = domain
 	r.URL.Scheme = "https"
@@ -97,19 +102,19 @@ func (h *handler) RedirectToLongURL(w http.ResponseWriter, r *http.Request) {
 }
 
 // shortenURL shortens a long url
-func shortenURL(u url.URL, domain string, uuidString string, logger loggerInterface) (string, error) {
+func shortenURL(u url.URL, domainName string, uuidString string, logger LoggerInterface) (string, error) {
 	if len([]rune(uuidString)) > 10 {
 		logger.Print(IDTooLongErrMessage)
 		return "", errors.New(IDTooLongErrMessage)
 	}
-	u.Host = domain
+	u.Host = domainName
 	u.Path = uuidString
 	rawURL := u.String()
 	return rawURL, nil
 }
 
 // urlFromBody gets the url sent in the body of a request
-func urlFromBody(body io.ReadCloser, logger loggerInterface) (*url.URL, error) {
+func urlFromBody(body io.ReadCloser, logger LoggerInterface) (*url.URL, error) {
 	b, err := io.ReadAll(body)
 	if len(b) == 0 {
 		logger.Print(BlankURLErrMessage)
@@ -138,8 +143,8 @@ func urlFromBody(body io.ReadCloser, logger loggerInterface) (*url.URL, error) {
 	return u, nil
 }
 
-// getDomain gets the host of the server without the network address
-func getDomain(r *http.Request) string {
+// getDomainName gets the host of the server without the network address
+func getDomainName(r *http.Request) string {
 	subStrings := strings.Split(r.Host, ":")
 	domain := subStrings[0]
 
